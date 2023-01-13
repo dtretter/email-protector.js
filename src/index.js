@@ -5,19 +5,35 @@ const Helper = {};  // Helper functions (defined later)
 
 export const EmailProtector = {
   defaultConfig: {
-    code: 13,
+    code: 47,
     cssReverse: true,
     hiddenSpan: true,
     htmlComments: true,
+    linkPrefix: 'mailto:',
   },
   config: {},
   params: {},
 
-  rot: (str, code = 13) => String(str).replace(/[a-z]/gi, (char) => {
-    const upperLimit = char <= 'Z' ? 90 : 122;
-    const rotedChar = char.charCodeAt(0) + (code % 26);
-    return String.fromCharCode((rotedChar <= upperLimit) ? rotedChar : rotedChar - 26);
-  }),
+  rot: (str, code = 13) => String(str)
+    .replace(/[a-z]/gi, (char) => {
+      const upperLimit = char <= 'Z' ? 90 : 122;
+      const rotedChar = char.charCodeAt(0) + (code % 26);
+      return String.fromCharCode((rotedChar <= upperLimit) ? rotedChar : rotedChar - 26);
+    }),
+  rot47: (str, code = 47) => {
+    const mycode = code - 14;
+    const s = [];
+    for (let i = 0; i < str.length; i += 1) {
+      const cc = str.charCodeAt(i);
+      if (cc >= 33 && cc <= 126) {
+        s[i] = String.fromCharCode(mycode + ((cc + 14) % 94));
+      } else {
+        s[i] = str.charAt(i);
+      }
+    }
+    return s.join('');
+  },
+
   append: (parentID, params = {}, config = {}) => {
     const paramsPrepared = Helper.prepareParams(params);
     const configPrepared = Helper.prepareConfig(config);
@@ -47,16 +63,20 @@ export const EmailProtector = {
     EmailProtector.config = {};  // _prepareConfig() use this value, so we have to reset it first
     EmailProtector.config = Helper.prepareConfig(config);
   },
-  resetParams: () => { EmailProtector.params = {}; },
+  resetParams: () => {
+    EmailProtector.params = {};
+  },
   resetConfig: () => Object.assign(EmailProtector.config, EmailProtector.defaultConfig),
   decode: (event, code) => {
     const properEvent = event || window.event;
     const target = properEvent.target || properEvent.srcElement;
     if (!target.dataset.emailDecoded) {
-      target.href = target.href.replace(
-        /\b(\w{6}:)?[\w.]+(@|%40)\w+(\.\w+)+\b/gi,
-        (match) => EmailProtector.rot(match, code),
-      );
+      target.href = EmailProtector.rot47(target.dataset.target, code);
+      // EmailProtector.rot47(target.href.substring(config.linkPrefix.length), code);
+      /* target.href = target.href.replace(
+          /\b(\w{6}:)?[\w.]+(@|%40)\w+(\.\w+)+\b/gi,
+          (match) => EmailProtector.rot(match, code),
+        ); */
       target.dataset.emailDecoded = true;
     }
     return true;
@@ -72,9 +92,9 @@ Helper.prepareParams = (params) => {
     throw new TypeError('EmailProtector: params should be a string or an object');
   }
   preparedParams = { ...EmailProtector.params, ...preparedParams };
-  if (!tools.isValidEmail(preparedParams.email)) {
+  /* if (!tools.isValidEmail(preparedParams.email)) {
     throw new TypeError(`EmailProtector: ${preparedParams.email} is not a valid email address`);
-  }
+  } */
   return preparedParams;
 };
 
@@ -85,12 +105,13 @@ Helper.prepareConfig = (config) => ({
 });
 
 Helper.setupLink = (uniqID, params, config) => {
-  const code = config.code % 26;  // for code numbers greater than 26
+  const code = config.code % 94;  // for code numbers greater than 94
   const linkContainer = document.createDocumentFragment();
   if (config.linkLabel) {
     linkContainer.appendChild(document.createTextNode(config.linkLabel));
   } else {
-    let linkText = EmailProtector.rot(params.email, code);
+    let linkText = EmailProtector.rot47(params.email, code);
+    console.log('decoded link text: ', linkText);
     const randomEmail = tools.getRandomEmail();
     const styleNode = document.createElement('STYLE');
     if (config.cssReverse) {
@@ -107,7 +128,8 @@ Helper.setupLink = (uniqID, params, config) => {
     if (config.hiddenSpan) {
       const hiddenSpan = document.createElement('span');
       hiddenSpan.appendChild(document.createTextNode(randomEmail));
-      linkContainer.insertBefore(hiddenSpan, linkTextNode.splitText(linkText.indexOf('@')));
+      // eslint-disable-next-line max-len
+      linkContainer.insertBefore(hiddenSpan, linkTextNode.splitText(tools.getRandomNumber(1, linkText.length)));
       styleNode.appendChild(document.createTextNode(`
         #${uniqID} span {
           display: none;
@@ -116,18 +138,23 @@ Helper.setupLink = (uniqID, params, config) => {
     }
     if (config.htmlComments) {
       // Array.from to get static list => childNodes would change due to splitText()
-      Array.from(linkContainer.childNodes).forEach((node) => {
-        Helper.extendTextNodeWithComments(node, ['@', '.']);
-      });
+      Array.from(linkContainer.childNodes)
+        .forEach((node) => {
+          Helper.extendTextNodeWithComments(node, ['@', '.', '(', ')', '-', '0', '2', '6', '9,', ' ']);
+        });
       linkContainer.insertBefore(document.createComment(` mailto:${randomEmail} `), linkContainer.firstChild);
     }
     if (styleNode.firstChild) document.head.appendChild(styleNode);
   }
 
-  const mailtoEncrypted = EmailProtector.rot('mailto:', 26 - code);
+  const mailtoEncrypted = EmailProtector.rot47(config.linkPrefix, 94 - code);
+  // console.log(mailtoEncrypted);
   const emailLinkParams = Helper.prepareEmailLinkParams(params);
   const linkNode = document.getElementById(uniqID);
-  linkNode.href = `${mailtoEncrypted}${params.email}${emailLinkParams}`;
+  linkNode.dataset.target = `${mailtoEncrypted}${params.email}${emailLinkParams}`;
+  // linkNode.href = `${config.linkPrefix}${params.email}${emailLinkParams}`;
+  linkNode.href = '#';
+  console.log(linkNode.href);
   linkNode.appendChild(linkContainer);
   linkNode.addEventListener('mousedown', (event) => EmailProtector.decode(event, code));
 };
@@ -135,7 +162,8 @@ Helper.setupLink = (uniqID, params, config) => {
 Helper.extendTextNodeWithComments = (node, searchStrings) => {
   if (node.nodeType !== Node.TEXT_NODE) return false;
   const searchStringsArray = [].concat(searchStrings);  // ensure it's an array
-  const searchRegExp = new RegExp(searchStringsArray.map((str) => tools.regExpEscape(str)).join('|'), 'g');
+  const searchRegExp = new RegExp(searchStringsArray.map((str) => tools.regExpEscape(str))
+    .join('|'), 'g');
   const matches = node.textContent.match(searchRegExp) || [];  // [] => in case no match is found
   let currentNode = node;
   matches.forEach((str) => {
@@ -154,6 +182,7 @@ Helper.extendTextNodeWithComments = (node, searchStrings) => {
 };
 
 Helper.prepareEmailLinkParams = (params) => {
-  const result = Object.entries(params).reduce((acc, [key, value]) => (key.match(/^cc|bcc|subject|body$/gi) ? `${acc}&${key}=${encodeURIComponent(value)}` : acc), '');
+  const result = Object.entries(params)
+    .reduce((acc, [key, value]) => (key.match(/^cc|bcc|subject|body$/gi) ? `${acc}&${key}=${encodeURIComponent(value)}` : acc), '');
   return (result.length > 0) ? `?${result.substring(1)}` : '';
 };

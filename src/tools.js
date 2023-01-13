@@ -5,6 +5,7 @@ const Tools = {
   reverseString: (str) => String(str).split('').reverse().join(''),
   getRandomString: (length = 8, charset = 'abcdefghijklmnopqrstuvwxyz') => Array.from({ length }, () => charset[Math.floor(Math.random() * charset.length)]).join(),
   getRandomEmail: () => `${Tools.getRandomString(6)}@${Tools.getRandomString(10)}.${Tools.getRandomString(3)}`,
+  getRandomNumber: (min, max) => Math.floor(Math.random() * (max - min) + min),
   getUniqID: () => `_${Date.now().toString(36) + Math.random().toString(36).substr(2)}`,
 };
 
